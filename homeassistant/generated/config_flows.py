@@ -480,6 +480,7 @@ FLOWS = {
         "tautulli",
         "tellduslive",
         "tesla_wall_connector",
+        "tessie",
         "thermobeacon",
         "thermopro",
         "thread",

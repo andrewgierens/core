@@ -5745,6 +5745,12 @@
         }
       }
     },
+    "tessie": {
+      "name": "tessie",
+      "integration_type": "hub",
+      "config_flow": true,
+      "iot_class": "cloud_polling"
+    },
     "tfiac": {
       "name": "Tfiac",
       "integration_type": "hub",
