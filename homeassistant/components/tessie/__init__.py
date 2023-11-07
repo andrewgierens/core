@@ -18,7 +18,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .const import ACCESS_TOKEN, DOMAIN, MANUFACTURER, NAME
 
-PLATFORMS: list[Platform] = [Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.SWITCH]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -61,13 +61,13 @@ class TessieDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.token = token
         self.device_info = DeviceInfo(
             entry_type=DeviceEntryType.SERVICE,
-            identifiers={(DOMAIN, "Tessie")},
+            identifiers={(DOMAIN, MANUFACTURER)},
             manufacturer=MANUFACTURER,
             name=NAME,
             configuration_url=("https://tessie.com"),
         )
 
-        update_interval = timedelta(minutes=30)
+        update_interval = timedelta(minutes=5)
         _LOGGER.debug("Data will be update every %s", update_interval)
 
         super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=update_interval)

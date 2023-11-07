@@ -18,6 +18,11 @@
     }
   },
   "entity": {
+    "switch": {
+      "charging_state_switch": {
+        "name": "Tesla Charger"
+      }
+    },
     "sensor": {
       "display_name": {
         "name": "Display Name"
