@@ -1,6 +1,6 @@
 {
   "domain": "tessie",
-  "name": "tessie",
+  "name": "Tessie",
   "codeowners": ["@andrewgierens"],
   "config_flow": true,
   "dependencies": [],
