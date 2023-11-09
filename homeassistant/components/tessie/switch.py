@@ -1,23 +1,32 @@
 """Switch for performing actions against Tesla."""
 
-from collections.abc import Callable, Coroutine
+from abc import ABC, abstractmethod
 from typing import Any
 
 from aiohttp import ClientSession
-from tessie_api import start_charging, stop_charging
-
-from homeassistant.components.switch import (
-    SwitchDeviceClass,
-    SwitchEntity,
-    SwitchEntityDescription,
+from tessie_api import (
+    close_charge_port,
+    disable_sentry_mode,
+    disable_valet_mode,
+    enable_sentry_mode,
+    enable_valet_mode,
+    lock,
+    open_unlock_charge_port,
+    start_charging,
+    start_climate_preconditioning,
+    start_steering_wheel_heater,
+    stop_charging,
+    stop_climate,
+    stop_steering_wheel_heater,
+    unlock,
 )
+
+from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import UNDEFINED, UndefinedType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import ACCESS_TOKEN, DOMAIN, MANUFACTURER, TessieDataUpdateCoordinator
@@ -46,6 +55,22 @@ def set_nested_dict_value(data_dict, key_path, value):
     data_dict[keys[-1]] = value  # Set the value for the last key
 
 
+def set_vehicle_charging_state(coordinator, vin, key, value):
+    """Set the charging state for a vehicle by its VIN."""
+    for vehicle in coordinator.data["results"]:
+        if vehicle["vin"] == vin:
+            set_nested_dict_value(vehicle, key, value)
+            break
+
+
+def getCarByVin(coordinator, vin: str) -> Any:
+    """Retrieve the car by VIN."""
+    for car in coordinator.data["results"]:
+        if car["vin"] == vin:
+            return car
+    return None
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
@@ -56,118 +81,149 @@ async def async_setup_entry(
     cars = coordinator.data["results"]
     session = async_get_clientsession(hass)
 
-    switches = [
-        TessieSwitch(
-            coordinator,
-            session,
-            description,
-            config_entry.data[ACCESS_TOKEN],
-            car["last_state"]["display_name"],
-            car["last_state"]["vehicle_config"]["car_type"],
-            car["vin"],
+    switches: list[TessieSwitchBase] = []
+    for car in cars:
+        switches.append(
+            TessieChargerSwitch(
+                coordinator,
+                session,
+                "last_state.charge_state.charging_state",
+                "charging_state_switch",
+                car["last_state"]["display_name"],
+                car["last_state"]["vehicle_config"]["car_type"],
+                config_entry.data[ACCESS_TOKEN],
+                "Charging",
+                "Stopped",
+                car["vin"],
+            )
         )
-        for description in SENSOR_INFO_TYPES_TESLA
-        for car in cars
-    ]
+
+        switches.append(
+            TessieChargePortSwitch(
+                coordinator,
+                session,
+                "last_state.charge_state.charge_port_door_open",
+                "charge_port_door_open_switch",
+                car["last_state"]["display_name"],
+                car["last_state"]["vehicle_config"]["car_type"],
+                config_entry.data[ACCESS_TOKEN],
+                True,
+                False,
+                car["vin"],
+            )
+        )
+        switches.append(
+            TessieClimateSwitch(
+                coordinator,
+                session,
+                "last_state.climate_state.is_climate_on",
+                "is_climate_on_switch",
+                car["last_state"]["display_name"],
+                car["last_state"]["vehicle_config"]["car_type"],
+                config_entry.data[ACCESS_TOKEN],
+                True,
+                False,
+                car["vin"],
+            )
+        )
+        switches.append(
+            TessieSteeringWheelHeatSwitch(
+                coordinator,
+                session,
+                "last_state.climate_state.steering_wheel_heater",
+                "steering_wheel_heater_switch",
+                car["last_state"]["display_name"],
+                car["last_state"]["vehicle_config"]["car_type"],
+                config_entry.data[ACCESS_TOKEN],
+                True,
+                False,
+                car["vin"],
+            )
+        )
+        switches.append(
+            TessieLockSwitch(
+                coordinator,
+                session,
+                "last_state.vehicle_state.locked",
+                "locked_switch",
+                car["last_state"]["display_name"],
+                car["last_state"]["vehicle_config"]["car_type"],
+                config_entry.data[ACCESS_TOKEN],
+                True,
+                False,
+                car["vin"],
+            )
+        )
+        switches.append(
+            TessieSentryModeSwitch(
+                coordinator,
+                session,
+                "last_state.vehicle_state.sentry_mode",
+                "sentry_mode_switch",
+                car["last_state"]["display_name"],
+                car["last_state"]["vehicle_config"]["car_type"],
+                config_entry.data[ACCESS_TOKEN],
+                True,
+                False,
+                car["vin"],
+            )
+        )
+        switches.append(
+            TessieValetModeSwitch(
+                coordinator,
+                session,
+                "last_state.vehicle_state.valet_mode",
+                "valet_mode_switch",
+                car["last_state"]["display_name"],
+                car["last_state"]["vehicle_config"]["car_type"],
+                config_entry.data[ACCESS_TOKEN],
+                True,
+                False,
+                car["vin"],
+            )
+        )
 
     async_add_entities(switches)
 
 
-class TessieSwitchEntityDescription(SwitchEntityDescription):
-    """A class that describes switch entities."""
+class TessieSwitchBase(CoordinatorEntity, SwitchEntity, ABC):
+    """Base class for Tessie switches."""
 
-    def __init__(
-        self,
-        key: str,
-        device_class: SwitchDeviceClass | None = None,
-        entity_category: EntityCategory | None = None,
-        entity_registry_enabled_default: bool = True,
-        entity_registry_visible_default: bool = True,
-        force_update: bool = False,
-        icon: str | None = None,
-        has_entity_name: bool = False,
-        name: str | UndefinedType | None = UNDEFINED,
-        translation_key: str | None = None,
-        unit_of_measurement: str | None = None,
-        switchName: str | None = None,
-        enabled_func: Callable[[ClientSession, str, str], Coroutine[Any, Any, None]]
-        | None = None,
-        enabled_value: str | None = None,
-        disabled_func: Callable[[ClientSession, str, str], Coroutine[Any, Any, None]]
-        | None = None,
-        disabled_value: str | None = None,
-    ) -> None:
-        """Init for Tesla switch."""
-
-        super().__init__(
-            key,
-            device_class,
-            entity_category,
-            entity_registry_enabled_default,
-            entity_registry_visible_default,
-            force_update,
-            icon,
-            has_entity_name,
-            name,
-            translation_key,
-            unit_of_measurement,
-        )
-        self.name = switchName
-        self.enabled_func = enabled_func
-        self.enabled_value = enabled_value
-        self.disabled_func = disabled_func
-        self.disabled_value = disabled_value
-
-    enabled_func: Callable[
-        [ClientSession, str, str], Coroutine[Any, Any, None]
-    ] | None = None
-    enabled_value: str | None = None
-    disabled_func: Callable[
-        [ClientSession, str, str], Coroutine[Any, Any, None]
-    ] | None = None
-    disabled_value: str | None = None
-
-
-class TessieSwitch(CoordinatorEntity, SwitchEntity):
-    """A class for the actual switch."""
+    has_entity_name = True
 
     def __init__(
         self,
         coordinator,
         session: ClientSession,
-        description: TessieSwitchEntityDescription,
-        apiKey: str,
+        key: str,
+        translation_key: str,
         name: str,
         model: str,
+        apiKey: str,
+        on_value: str | bool,
+        off_value: str | bool,
         vin: str,
     ) -> None:
-        """Init the switch."""
-
+        """Initialize the Tessie switch."""
         super().__init__(coordinator)
-        self._description = description
         self._session = session
         self._apiKey = apiKey
+        self._key = key
         self._name = name
+        self._translation_key = translation_key
         self._model = model
         self._vin = vin
-        self._is_charging = False
-
-    def getCarByVin(self, vin: str) -> Any:
-        """Retrieve the inverter by name."""
-
-        for car in self.coordinator.data["results"]:
-            if car["vin"] == vin:
-                return car
-        return None
+        self._on_value = on_value
+        self._off_value = off_value
 
     @property
-    def name(self) -> str:
-        """Set the name of the switch."""
-        return str(self._description.name)
+    def translation_key(self) -> str:
+        """Return the translation key of the switch."""
+        return self._translation_key
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Set the device info for the switch."""
+        """Return the device info for the switch."""
         return DeviceInfo(
             identifiers={(DOMAIN, MANUFACTURER)},
             name=self._name,
@@ -177,56 +233,161 @@ class TessieSwitch(CoordinatorEntity, SwitchEntity):
 
     @property
     def unique_id(self) -> str:
-        """Set the unique id of the switch."""
-        return f"{self._description.key}.switch"
+        """Return the unique ID of the switch."""
+        return f"{self._key}.switch"
 
     @property
     def is_on(self) -> bool:
-        """Get the value of the switches underlying sensor."""
-        # Use the sensor value to determine the state of the switch
-        value = traverse_nested_dict(self.getCarByVin(self._vin), self._description.key)
-        return value == self._description.enabled_value
+        """Return whether the switch is on."""
+        value = traverse_nested_dict(
+            getCarByVin(self.coordinator, self._vin), self._key
+        )
+        return value == self._on_value
+
+    @abstractmethod
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Turn on the switch."""
+
+    @abstractmethod
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Turn off the switch."""
+
+
+class TessieChargerSwitch(TessieSwitchBase):
+    """A class for the actual switch."""
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the switch."""
-        # Call the API to start charging
-        if self._description.enabled_func is None:
-            return
-        await self._description.enabled_func(self._session, self._vin, self._apiKey)
-
-        for vehicle in self.coordinator.data["results"]:
-            if vehicle["vin"] == self._vin:
-                set_nested_dict_value(
-                    vehicle, self._description.key, self._description.enabled_value
-                )
-                break
+        await start_charging(self._session, self._vin, self._apiKey)
+        set_vehicle_charging_state(
+            self.coordinator, self._vin, self._key, self._on_value
+        )
         self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off the switch."""
-        # Call the API to stop charging
-        if self._description.disabled_func is None:
-            return
-        await self._description.disabled_func(self._session, self._vin, self._apiKey)
-
-        for vehicle in self.coordinator.data["results"]:
-            if vehicle["vin"] == self._vin:
-                set_nested_dict_value(
-                    vehicle, self._description.key, self._description.disabled_value
-                )
-                break
-
+        await stop_charging(self._session, self._vin, self._apiKey)
+        set_vehicle_charging_state(
+            self.coordinator, self._vin, self._key, self._off_value
+        )
         self.async_write_ha_state()
 
 
-SENSOR_INFO_TYPES_TESLA: tuple[TessieSwitchEntityDescription, ...] = (
-    TessieSwitchEntityDescription(
-        translation_key="charging_state_switch",
-        key="last_state.charge_state.charging_state",
-        switchName="Tesla Charger",
-        enabled_func=start_charging,
-        enabled_value="Charging",
-        disabled_func=stop_charging,
-        disabled_value="Stopped",
-    ),
-)
+class TessieChargePortSwitch(TessieSwitchBase):
+    """A class for the actual switch."""
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Turn on the switch."""
+        await open_unlock_charge_port(self._session, self._vin, self._apiKey)
+        set_vehicle_charging_state(
+            self.coordinator, self._vin, self._key, self._on_value
+        )
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Turn off the switch."""
+        await close_charge_port(self._session, self._vin, self._apiKey)
+        set_vehicle_charging_state(
+            self.coordinator, self._vin, self._key, self._off_value
+        )
+        self.async_write_ha_state()
+
+
+class TessieClimateSwitch(TessieSwitchBase):
+    """A class for the actual switch."""
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Turn on the switch."""
+        await start_climate_preconditioning(self._session, self._vin, self._apiKey)
+        set_vehicle_charging_state(
+            self.coordinator, self._vin, self._key, self._on_value
+        )
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Turn off the switch."""
+        await stop_climate(self._session, self._vin, self._apiKey)
+        set_vehicle_charging_state(
+            self.coordinator, self._vin, self._key, self._off_value
+        )
+        self.async_write_ha_state()
+
+
+class TessieSteeringWheelHeatSwitch(TessieSwitchBase):
+    """A class for the actual switch."""
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Turn on the switch."""
+        await start_steering_wheel_heater(self._session, self._vin, self._apiKey)
+        set_vehicle_charging_state(
+            self.coordinator, self._vin, self._key, self._on_value
+        )
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Turn off the switch."""
+        await stop_steering_wheel_heater(self._session, self._vin, self._apiKey)
+        set_vehicle_charging_state(
+            self.coordinator, self._vin, self._key, self._off_value
+        )
+        self.async_write_ha_state()
+
+
+class TessieLockSwitch(TessieSwitchBase):
+    """A class for the actual switch."""
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Turn on the switch."""
+        await lock(self._session, self._vin, self._apiKey)
+        set_vehicle_charging_state(
+            self.coordinator, self._vin, self._key, self._on_value
+        )
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Turn off the switch."""
+        await unlock(self._session, self._vin, self._apiKey)
+        set_vehicle_charging_state(
+            self.coordinator, self._vin, self._key, self._off_value
+        )
+        self.async_write_ha_state()
+
+
+class TessieSentryModeSwitch(TessieSwitchBase):
+    """A class for the actual switch."""
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Turn on the switch."""
+        await enable_sentry_mode(self._session, self._vin, self._apiKey)
+        set_vehicle_charging_state(
+            self.coordinator, self._vin, self._key, self._on_value
+        )
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Turn off the switch."""
+        await disable_sentry_mode(self._session, self._vin, self._apiKey)
+        set_vehicle_charging_state(
+            self.coordinator, self._vin, self._key, self._off_value
+        )
+        self.async_write_ha_state()
+
+
+class TessieValetModeSwitch(TessieSwitchBase):
+    """A class for the actual switch."""
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Turn on the switch."""
+        await enable_valet_mode(self._session, self._vin, self._apiKey)
+        set_vehicle_charging_state(
+            self.coordinator, self._vin, self._key, self._on_value
+        )
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Turn off the switch."""
+        await disable_valet_mode(self._session, self._vin, self._apiKey)
+        set_vehicle_charging_state(
+            self.coordinator, self._vin, self._key, self._off_value
+        )
+        self.async_write_ha_state()

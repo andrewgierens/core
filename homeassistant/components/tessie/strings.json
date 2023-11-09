@@ -17,15 +17,56 @@
       "already_configured": "[%key:common::config_flow::abort::already_configured_device%]"
     }
   },
+  "services": {
+    "set_charging_amps": {
+      "name": "Set Charging Amps",
+      "description": "Change the current value for the Tesla charging.",
+      "fields": {
+        "amps": {
+          "name": "Amps",
+          "description": "The amount of amps to set the Tesla. Select this or the next for providing amps"
+        },
+        "entity_amps": {
+          "name": "Entity Amps",
+          "description": "The amount of amps to set the Tesla provided by an entity. NOTE - THIS TAKES PRIORITY OVER THE ABOVE"
+        },
+        "vehicle": {
+          "name": "Vehicle",
+          "description": "The target vehicle"
+        }
+      }
+    }
+  },
   "entity": {
     "switch": {
       "charging_state_switch": {
-        "name": "Tesla Charger"
+        "name": "Charging State"
+      },
+      "charge_port_door_open_switch": {
+        "name": "Charge Port Door"
+      },
+      "is_climate_on_switch": {
+        "name": "Climate Control"
+      },
+      "steering_wheel_heater_switch": {
+        "name": "Steering Wheel Heater"
+      },
+      "locked_switch": {
+        "name": "Lock State"
+      },
+      "sentry_mode_switch": {
+        "name": "Sentry Mode"
+      },
+      "valet_mode_switch": {
+        "name": "Valet Mode"
       }
     },
     "sensor": {
       "display_name": {
         "name": "Display Name"
+      },
+      "vin": {
+        "name": "VIN"
       },
       "battery_heater_on": {
         "name": "Battery Heater On"

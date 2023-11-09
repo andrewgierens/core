@@ -17,6 +17,7 @@ from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import ACCESS_TOKEN, DOMAIN, MANUFACTURER, NAME
+from .services import async_setup_services
 
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.SWITCH]
 
@@ -25,6 +26,8 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up SEMS Portal from a config entry."""
+
+    async_setup_services(hass, entry)
 
     accessToken: str = entry.data[ACCESS_TOKEN]
     websession = async_get_clientsession(hass)

@@ -49,6 +49,7 @@ class TessieCarSensor(BaseTessieSensor):
     @property
     def native_value(self):
         """Return the state of the sensor."""
+
         return traverse_nested_dict(
             self.getCarByVin(self.coordinator, self.vin), self.entity_description.key
         )
@@ -85,6 +86,12 @@ SENSOR_INFO_TYPES_TESLA: tuple[SensorEntityDescription, ...] = (
     SensorEntityDescription(
         translation_key="display_name",
         key="last_state.display_name",
+        native_unit_of_measurement=None,
+        device_class=None,
+    ),
+    SensorEntityDescription(
+        translation_key="vin",
+        key="vin",
         native_unit_of_measurement=None,
         device_class=None,
     ),
